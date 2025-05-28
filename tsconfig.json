@@ -1,0 +1,28 @@
+{
+  "compilerOptions": {
+    // Prevent TS from outputting JS files (esbuild will handle this)
+    "noEmit": true,
+    // Use ESNext module system (ES modules)
+    "module": "ESNext",
+    // Compile to the latest ECMAScript version
+    "target": "ESNext",
+    // Resolve modules using Node.js style
+    "moduleResolution": "node",
+    // Enables interop between ES modules and CommonJS
+    "esModuleInterop": true,
+    // Allows default imports from modules with no default export
+    "allowSyntheticDefaultImports": true,
+    // Enables strict type-checking
+    "strict": true,
+    // Skip type-checking declaration files (faster builds)
+    "skipLibCheck": true,
+    // Helps avoid weird casing issues across OSes (esp. Windows vs macOS/Linux).
+    "forceConsistentCasingInFileNames": true,
+    // If you're not publishing a package that will be consumed by others, this setup is perfect. But if you plan to compile for distribution, you might want to include:
+    // "declaration": true,  // generates .d.ts type definitions
+  },
+  // Include all files under the src directory
+  "include": ["src/**/*"],
+  // Exclude node_modules and dist directories
+  "exclude": ["node_modules", "dist"]
+}
