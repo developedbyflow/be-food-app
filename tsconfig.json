@@ -17,7 +17,7 @@
     // Skip type-checking declaration files (faster builds)
     "skipLibCheck": true,
     // Helps avoid weird casing issues across OSes (esp. Windows vs macOS/Linux).
-    "forceConsistentCasingInFileNames": true,
+    "forceConsistentCasingInFileNames": true
     // If you're not publishing a package that will be consumed by others, this setup is perfect. But if you plan to compile for distribution, you might want to include:
     // "declaration": true,  // generates .d.ts type definitions
   },

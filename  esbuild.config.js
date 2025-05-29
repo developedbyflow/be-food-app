@@ -8,24 +8,26 @@ await esbuild.build({
   outfile: 'dist/index.js',
   platform: 'node',
   target: 'node18', // Adjust to your Node.js version
-  format: 'esm',    // Matches your tsconfig ESNext modules
+  format: 'esm', // Matches your tsconfig ESNext modules
   sourcemap: !isProduction,
   minify: isProduction,
-  
+
   // Don't bundle Node.js built-ins and large dependencies
   external: [
     'fsevents',
-    'chokidar'
+    'chokidar',
     // Add other dependencies you don't want bundled
   ],
-  
+
   // Tree-shaking and optimization
   treeShaking: true,
-  
+
   // Environment variables
   define: {
-    'process.env.NODE_ENV': `"${process.env.NODE_ENV || 'development'}"`
-  }
+    'process.env.NODE_ENV': `"${process.env.NODE_ENV || 'development'}"`,
+  },
 });
 
-console.log(`✅ Build complete (${isProduction ? 'production' : 'development'})`);
+console.log(
+  `✅ Build complete (${isProduction ? 'production' : 'development'})`
+);
