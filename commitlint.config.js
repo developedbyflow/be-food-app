@@ -1,8 +1,8 @@
 // use this after you configure husky
-module.exports = {
+export default {
   parserPreset: {
     parserOpts: {
-      headerPattern: /^([a-z]+)(\([a-z]+\/[a-z]+\))#([A-Z]+-\d+): (.+)$/,
+      headerPattern: /^([a-z]+)\(([a-z-]+\/[a-z-]+)\)#([A-Z]+-\d+): (.+)$/,
       headerCorrespondence: ['type', 'scope', 'ticket', 'subject'],
     },
   },
