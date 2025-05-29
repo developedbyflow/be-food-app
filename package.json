@@ -11,10 +11,14 @@
     "prepare": "husky",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "lint": "eslint . --ext .ts"
+    "lint": "eslint . --fix",
+    "lint:check": "eslint ."
   },
   "lint-staged": {
-    "*.{js,ts,json,md}": [
+    "*.{js,ts}": [
+      "eslint --fix"
+    ],
+    "*.{json,md}": [
       "prettier --write"
     ]
   },

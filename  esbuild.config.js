@@ -1,6 +1,7 @@
 import esbuild from 'esbuild';
+import { env } from 'process';
 
-const isProduction = process.env.NODE_ENV === 'production';
+const isProduction = env.NODE_ENV === 'production';
 
 await esbuild.build({
   entryPoints: ['src/index.ts'],
@@ -21,10 +22,9 @@ await esbuild.build({
 
   // Tree-shaking and optimization
   treeShaking: true,
-
   // Environment variables
   define: {
-    'process.env.NODE_ENV': `"${process.env.NODE_ENV || 'development'}"`,
+    'process.env.NODE_ENV': `"${env.NODE_ENV || 'development'}"`,
   },
 });
 
