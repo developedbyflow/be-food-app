@@ -12,7 +12,8 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "lint": "eslint . --fix",
-    "lint:check": "eslint ."
+    "lint:check": "eslint .",
+    "secrets:check": "gitleaks detect --no-banner --verbose"
   },
   "lint-staged": {
     "*.{js,ts}": [
@@ -36,6 +37,7 @@
     "eslint-config-prettier": "^10.1.5",
     "eslint-plugin-n": "^17.18.0",
     "eslint-plugin-prettier": "^5.4.0",
+    "gitleaks": "^1.0.0",
     "husky": "^9.1.7",
     "lint-staged": "^16.1.0",
     "prettier": "^3.5.3",
