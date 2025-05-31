@@ -1,5 +1,7 @@
 {
   "compilerOptions": {
+    // Allows importing TypeScript files with .ts extension
+    "allowImportingTsExtensions": true,
     // Prevent TS from outputting JS files (esbuild will handle this)
     "noEmit": true,
     // Use ESNext module system (ES modules)

@@ -12,6 +12,9 @@ import nodePlugin from 'eslint-plugin-n';
 // Import the Prettier plugin to integrate Prettier formatting as ESLint rules
 import prettierPlugin from 'eslint-plugin-prettier';
 
+// Add this import at the top
+import importPlugin from 'eslint-plugin-import';
+
 // Import the official ESLint JavaScript recommended base config
 import js from '@eslint/js';
 
@@ -41,6 +44,7 @@ export default [
     plugins: {
       '@typescript-eslint': tsPlugin, // Enable TypeScript linting rules
       n: nodePlugin, // Enable Node.js specific linting rules
+      import: importPlugin, // ✅ Add the import plugin
     },
     rules: {
       // Warn when variables are declared but never used, except those starting with _
@@ -60,6 +64,21 @@ export default [
       'no-console': 'off',
       // Disallow multiple empty lines (max 1 empty line)
       'no-multiple-empty-lines': ['error', { max: 1, maxEOF: 0 }],
+      // Keep external imports on top, then internal ones, separated by a line
+      'import/order': [
+        'error',
+        {
+          groups: [
+            ['builtin', 'external'], // Group external packages together
+            'internal', // All internal imports
+            ['parent', 'sibling', 'index'],
+          ],
+          'newlines-between': 'always',
+          alphabetize: { order: 'asc', caseInsensitive: true },
+          // This will help but won't separate default vs named within groups
+          warnOnUnassignedImports: true,
+        },
+      ],
     },
   },
 
