@@ -1,0 +1,16 @@
+{
+  "success": true,
+  "data": [
+    {
+      "fdcId": 171077,
+      "description": "Chicken, broilers or fryers, breast, meat only, cooked, roasted",
+      "foodNutrients": [
+        {
+          "nutrientId": 1008,
+          "nutrientName": "Energy",
+          "value": 165
+        }
+      ]
+    }
+  ]
+}

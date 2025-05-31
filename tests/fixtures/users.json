@@ -1,0 +1,30 @@
+{
+  "validUser": {
+    "email": "john@example.com",
+    "weight": 70,
+    "height": 175,
+    "age": 30,
+    "activityLevel": "moderately_active",
+    "dietType": "omnivore",
+    "goals": {
+      "type": "maintenance",
+      "targetCalories": 2127,
+      "macros": {
+        "protein": 30,
+        "carbs": 40,
+        "fats": 30
+      }
+    }
+  },
+  "edgeCaseUser": {
+    "email": "edge@example.com",
+    "weight": 0,
+    "height": 0,
+    "age": 150
+  },
+  "veganUser": {
+    "email": "vegan@example.com",
+    "dietType": "vegan",
+    "allergies": ["nuts", "gluten"]
+  }
+}

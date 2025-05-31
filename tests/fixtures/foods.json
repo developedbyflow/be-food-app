@@ -1,0 +1,22 @@
+{
+  "chickenBreast": {
+    "id": 1,
+    "name": "Chicken Breast",
+    "calories": 165,
+    "protein": 31,
+    "carbs": 0,
+    "fats": 3.6,
+    "dietTypes": ["omnivore"],
+    "allergens": []
+  },
+  "tofu": {
+    "id": 2,
+    "name": "Firm Tofu",
+    "calories": 144,
+    "protein": 15,
+    "carbs": 3,
+    "fats": 9,
+    "dietTypes": ["vegan", "vegetarian"],
+    "allergens": ["soy"]
+  }
+}

@@ -1,8 +1,6 @@
 # Dependencies
 node_modules/
 /vendor
-package-lock.json
-yarn.lock
 
 # Environment variables
 .env.*
