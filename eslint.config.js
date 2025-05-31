@@ -47,10 +47,17 @@ export default [
       import: importPlugin, // ✅ Add the import plugin
     },
     rules: {
+      'no-unused-vars': 'off',
       // Warn when variables are declared but never used, except those starting with _
       '@typescript-eslint/no-unused-vars': [
         'warn',
-        { argsIgnorePattern: '^_' },
+        {
+          argsIgnorePattern: '^_', // Ignore parameters starting with _
+          varsIgnorePattern: '^_', // Ignore variables starting with _
+          caughtErrorsIgnorePattern: '^_', // Ignore caught errors starting with _
+          destructuredArrayIgnorePattern: '^_', // Ignore destructured arrays starting with _
+          ignoreRestSiblings: true, // Ignore unused in object destructuring
+        },
       ],
       // Warn if the `any` type is explicitly used in TypeScript code
       '@typescript-eslint/no-explicit-any': 'warn',

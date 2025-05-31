@@ -11,8 +11,8 @@ import helmet from 'helmet';
 import morgan from 'morgan';
 
 import { config } from './config/config.ts';
-// import { errorHandler } from './middlewares/errorHandler.ts';
-// import { notFoundHandler } from './middlewares/notFoundHandler.ts';
+import { errorHandler } from './middlewares/errorHandler.ts';
+import { notFoundHandler } from './middlewares/notFoundHandler.ts';
 import apiRoutes from './routes/routes.ts';
 
 const app = express();
@@ -75,7 +75,7 @@ app.get('/health', (req, res) => {
 app.use('/api/v1', apiRoutes);
 
 // Error handling middleware (MUST BE LAST)
-// app.use(notFoundHandler); // Handles 404s
-// app.use(errorHandler); // Handles all other errors
+app.use(notFoundHandler); // Handles 404s
+app.use(errorHandler); // Handles all other errors
 
 export default app;
