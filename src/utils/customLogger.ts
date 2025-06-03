@@ -5,7 +5,6 @@ import winston from 'winston';
 
 // Get current directory for ES modules
 const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
 
 // Create logs directory if it doesn't exist
 const logsDir = path.join(process.cwd(), 'logs');

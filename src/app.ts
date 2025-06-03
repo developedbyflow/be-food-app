@@ -1,71 +1,169 @@
-// app.ts
-/**Express Application Configuration
-Purpose: Configures the Express app instance
-Responsibility: Middleware, routes, error handling
-Focus: "What the app does" */
+/**
+ * Express Application Configuration
+ * Purpose: Configures the Express app instance
+ * Responsibility: Middleware, routes, error handling
+ * Focus: "What the app does"
+ */
 
 import compression from 'compression';
 import cors from 'cors';
 import express from 'express';
 import rateLimit from 'express-rate-limit';
 import helmet from 'helmet';
-import morgan from 'morgan';
 
-import { errorHandler } from './middlewares/errorHandler.ts';
-import { notFoundHandler } from './middlewares/notFoundHandler.ts';
-// import apiRoutes from './routes/index.ts';
+// Import middleware
+import { errorHandler } from '../src/middlewares/errorHandler.ts';
+import { httpLoggerWithSkip } from '../src/middlewares/loggerHandler.ts';
+import { notFoundHandler } from '../src/middlewares/notFoundHandler.ts';
+// Import routes
+import apiV1Routes from './routes/v1/index.ts';
+// Import custom errors
+import { ConfigurationError } from './utils/customErrors.js';
+import { pool } from '../database/scripts/connection.ts';
 
 const app = express();
 
-// Security middleware
-// set various HTTP headers to help protect the app
-app.use(helmet());
-// enable CORS for all routes
-app.use(
-  cors({
-    // This controls which domains can make requests to your server. Without this:
-    origin: process.env.CORS_ORIGIN,
-    // - your API would be accessible from any website (security risk)
-    // - browsers would block cross-origin requests by default
-    // - by setting it to config.corsOrigin, you're likely allowing specific trusted domains
+// ===== SECURITY MIDDLEWARE (FIRST) =====
+try {
+  // Set various HTTP headers to help protect the app
+  app.use(
+    helmet({
+      contentSecurityPolicy: process.env.NODE_ENV === 'production',
+    })
+  );
 
-    // Allows browsers to include user authentication data with requests
-    credentials: Boolean(process.env.CORS_CREDENTIALS),
-    // - tells the browser "yes, send cookies and auth headers with requests"
-    // - essential for login systems and user sessions
-    // - without this, users would appear "logged out" on cross-origin requests
-    // - important gotcha: When credentials: true, your origin cannot be "*" (wildcard). You must specify exact domains.
-  })
-);
+  // Enable CORS for all routes
+  const corsOrigin = process.env.CORS_ORIGIN;
+  if (!corsOrigin) {
+    throw new ConfigurationError(
+      'CORS_ORIGIN environment variable is required'
+    );
+  }
 
-// Rate limiting
-const limiter = rateLimit({
-  windowMs: Number(process.env.LIMITER_WINDOW_MS),
-  max: Number(process.env.LIMITER_MAX_REQUESTS),
+  app.use(
+    cors({
+      origin: corsOrigin,
+      credentials: process.env.CORS_CREDENTIALS === 'true',
+    })
+  );
+
+  // Rate limiting - protect against brute force attacks
+  const windowMs = Number(process.env.LIMITER_WINDOW_MS);
+  const maxRequests = Number(process.env.LIMITER_MAX_REQUESTS);
+
+  if (isNaN(windowMs) || isNaN(maxRequests)) {
+    throw new ConfigurationError(
+      'Rate limiting configuration is invalid. Check LIMITER_WINDOW_MS and LIMITER_MAX_REQUESTS'
+    );
+  }
+
+  const limiter = rateLimit({
+    windowMs: windowMs || 15 * 60 * 1000, // 15 minutes
+    max: maxRequests || 100,
+    message: {
+      error: 'Too many requests',
+      message: 'Too many requests from this IP, please try again later.',
+      code: 'RATE_LIMIT_EXCEEDED',
+    },
+    standardHeaders: true,
+    legacyHeaders: false,
+  });
+  app.use(limiter);
+} catch (error) {
+  console.error(
+    '❌ Failed to configure security middleware:',
+    error instanceof Error ? error.message : String(error)
+  );
+  throw error; // Re-throw to be caught by index.ts
+}
+
+// ===== PERFORMANCE MIDDLEWARE =====
+app.use(compression());
+
+// ===== BODY PARSING MIDDLEWARE =====
+try {
+  const bodyLimit = process.env.JSON_BODY_LIMIT || '10mb';
+
+  // Validate body limit format
+  if (!/^\d+(?:mb|kb|gb)$/i.test(bodyLimit)) {
+    throw new ConfigurationError(
+      `Invalid JSON_BODY_LIMIT format: ${bodyLimit}. Use format like '10mb', '1gb', etc.`
+    );
+  }
+
+  app.use(express.json({ limit: bodyLimit }));
+  app.use(express.urlencoded({ extended: true, limit: bodyLimit }));
+} catch (error) {
+  console.error(
+    '❌ Failed to configure body parsing:',
+    error instanceof Error ? error.message : String(error)
+  );
+  throw error;
+}
+
+// ===== LOGGING MIDDLEWARE =====
+app.use(httpLoggerWithSkip);
+
+// ===== ROOT ENDPOINT =====
+app.get('/', (req, res) => {
+  try {
+    res.json({
+      message: 'Welcome to Food App API',
+      version: process.env.API_VERSION,
+      environment: process.env.NODE_ENV,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error) {
+    // This will be caught by the error handler middleware
+    throw new ConfigurationError('Failed to generate API information');
+  }
 });
-app.use(limiter);
 
-// Performance middleware
-app.use(compression()); // Compress responses
+// ===== HEALTH CHECK ROUTE =====
+app.get('/health', async (req, res) => {
+  try {
+    const checks = await Promise.allSettled([
+      pool.query('SELECT 1'), // Database
+      // Add more checks here
+    ]);
 
-// Logging middleware
-app.use(morgan(process.env.NODE_ENV === 'production' ? 'combined' : 'dev'));
+    const memory = process.memoryUsage();
 
-// Body parsing middleware
-// Purpose: This allows your Express app to accept JSON data in the body of incoming requests (Content-Type: application/json).
-// Limit: '10mb':
-// Sets a maximum body size of 10 megabytes to prevent clients from sending overly large JSON payloads (which could slow or crash your server).
-app.use(express.json({ limit: process.env.JSON_BODY_LIMIT }));
-// Purpose: This allows your Express app to accept URL-encoded data, like what is sent from an HTML form (Content-Type: application/x-www-form-urlencoded).
-// Extended: true: Allows nested objects in the data, using the qs library instead of the basic querystring library.
-// Limit: '10mb': Again, prevents huge request bodies.
-// app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+    res.json({
+      status: 'healthy',
+      timestamp: new Date().toISOString(),
+      uptime: process.uptime(),
+      version: process.env.API_VERSION,
 
-// API routes
-// app.use('/api/v1', apiRoutes);
+      // 🎯 Memory metrics for monitoring
+      memory: {
+        rss: memory.rss,
+        heapTotal: memory.heapTotal,
+        heapUsed: memory.heapUsed,
+        external: memory.external,
+      },
 
-// Error handling middleware (MUST BE LAST)
-app.use(notFoundHandler); // Handles 404s
-app.use(errorHandler); // Handles all other errors
+      // Service checks
+      services: {
+        database: checks[0].status === 'fulfilled' ? 'healthy' : 'unhealthy',
+      },
+    });
+  } catch (error: any) {
+    res.status(503).json({
+      status: 'unhealthy',
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+});
+
+// ===== API ROUTES =====
+app.use('/api/v1', apiV1Routes);
+
+// ===== ERROR HANDLING MIDDLEWARE (MUST BE LAST) =====
+// Handle 404s for unmatched routes
+app.use(notFoundHandler);
+
+// Handle all other errors
+app.use(errorHandler);
 
 export default app;

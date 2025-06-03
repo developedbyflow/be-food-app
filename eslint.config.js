@@ -47,7 +47,10 @@ export default [
       import: importPlugin, // ✅ Add the import plugin
     },
     rules: {
-      'no-unused-vars': 'off',
+      // Warn about unused variables in JavaScript files
+      'no-unused-vars': 'warn',
+      // Allow case declarations in switch statements
+      // 'no-case-declarations': 'error',
       // Warn when variables are declared but never used, except those starting with _
       '@typescript-eslint/no-unused-vars': [
         'warn',

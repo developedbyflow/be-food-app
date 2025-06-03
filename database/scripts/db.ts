@@ -2,10 +2,55 @@ import { exec } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 
+import {
+  DatabaseError,
+  NotFoundError,
+  ValidationError,
+  ConfigurationError,
+  AppError,
+} from '../../src/utils/customErrors.ts';
 import logger, {
   dbLogger,
   migrationLogger,
 } from '../../src/utils/customLogger.ts';
+
+// Type guards for error handling
+function isAppError(error: unknown): error is AppError {
+  return error instanceof AppError;
+}
+
+function isCustomError(
+  error: unknown
+): error is
+  | DatabaseError
+  | NotFoundError
+  | ValidationError
+  | ConfigurationError {
+  return (
+    error instanceof DatabaseError ||
+    error instanceof NotFoundError ||
+    error instanceof ValidationError ||
+    error instanceof ConfigurationError
+  );
+}
+
+function isError(error: unknown): error is Error {
+  return error instanceof Error;
+}
+
+function getErrorMessage(error: unknown): string {
+  if (isError(error)) {
+    return error.message;
+  }
+  return String(error);
+}
+
+function getErrorStack(error: unknown): string | undefined {
+  if (isError(error)) {
+    return error.stack;
+  }
+  return undefined;
+}
 
 // Database connection
 const DB_URL =
@@ -60,7 +105,7 @@ logger.info('Database CLI started', {
   nodeVersion: process.version,
 });
 
-function runCommand(command): Promise<string> {
+function runCommand(command: string): Promise<string> {
   return new Promise((resolve, reject) => {
     const timer = createTimer();
 
@@ -73,15 +118,20 @@ function runCommand(command): Promise<string> {
       const duration = timer.elapsedMs();
 
       if (error) {
+        const dbError = new DatabaseError(
+          `Command execution failed: ${error.message}`
+        );
         dbLogger.error('Database command failed', {
           command:
             command.length > 100 ? command.substring(0, 100) + '...' : command,
-          error: error.message,
+          originalError: error.message,
+          error: dbError.message,
+          code: dbError.code,
           stderr,
           duration,
         });
-        console.error(`❌ Error: ${error.message}`);
-        reject(error);
+        console.error(`❌ Error: ${dbError.message}`);
+        reject(dbError);
         return;
       }
 
@@ -108,7 +158,7 @@ function runCommand(command): Promise<string> {
   });
 }
 
-function checkFileExists(filePath) {
+function checkFileExists(filePath: string): boolean {
   const fullPath = path.join(process.cwd(), 'database', filePath);
   const exists = fs.existsSync(fullPath);
 
@@ -121,7 +171,7 @@ function checkFileExists(filePath) {
 }
 
 // Migration functions
-async function ensureMigrationsTable() {
+async function ensureMigrationsTable(): Promise<void> {
   const timer = createTimer();
 
   migrationLogger.info('Ensuring migrations table exists');
@@ -140,16 +190,22 @@ async function ensureMigrationsTable() {
     migrationLogger.info('Migrations table ready', {
       duration: timer.elapsedMs(),
     });
-  } catch (error) {
+  } catch (error: unknown) {
+    const errorMessage = getErrorMessage(error);
+    const dbError = new DatabaseError(
+      `Failed to ensure migrations table: ${errorMessage}`
+    );
     migrationLogger.error('Failed to ensure migrations table', {
-      error: error.message,
+      originalError: errorMessage,
+      error: dbError.message,
+      code: dbError.code,
       duration: timer.elapsedMs(),
     });
-    throw error;
+    throw dbError;
   }
 }
 
-function getMigrationFiles() {
+function getMigrationFiles(): string[] {
   const timer = createTimer();
   const migrationsPath = path.join(process.cwd(), MIGRATIONS_DIR);
 
@@ -157,13 +213,42 @@ function getMigrationFiles() {
     migrationLogger.info('Creating migrations directory', {
       path: migrationsPath,
     });
-    fs.mkdirSync(migrationsPath, { recursive: true });
+    try {
+      fs.mkdirSync(migrationsPath, { recursive: true });
+    } catch (error: unknown) {
+      const errorMessage = getErrorMessage(error);
+      const configError = new ConfigurationError(
+        `Failed to create migrations directory: ${errorMessage}`
+      );
+      migrationLogger.error('Failed to create migrations directory', {
+        path: migrationsPath,
+        originalError: errorMessage,
+        error: configError.message,
+        code: configError.code,
+      });
+      throw configError;
+    }
   }
 
-  const files = fs
-    .readdirSync(migrationsPath)
-    .filter((file) => file.endsWith('.sql'))
-    .sort();
+  let files: string[];
+  try {
+    files = fs
+      .readdirSync(migrationsPath)
+      .filter((file) => file.endsWith('.sql'))
+      .sort();
+  } catch (error: unknown) {
+    const errorMessage = getErrorMessage(error);
+    const configError = new ConfigurationError(
+      `Failed to read migrations directory: ${errorMessage}`
+    );
+    migrationLogger.error('Failed to read migrations directory', {
+      path: migrationsPath,
+      originalError: errorMessage,
+      error: configError.message,
+      code: configError.code,
+    });
+    throw configError;
+  }
 
   migrationLogger.debug('Migration files discovered', {
     path: migrationsPath,
@@ -175,7 +260,7 @@ function getMigrationFiles() {
   return files;
 }
 
-async function getAppliedMigrations() {
+async function getAppliedMigrations(): Promise<string[]> {
   const timer = createTimer();
 
   try {
@@ -200,16 +285,30 @@ async function getAppliedMigrations() {
     });
 
     return appliedMigrations;
-  } catch (error) {
+  } catch (error: unknown) {
+    // If it's already a custom error, re-throw it
+    if (isCustomError(error)) {
+      throw error;
+    }
+
+    const errorMessage = getErrorMessage(error);
+    const dbError = new DatabaseError(
+      `Failed to get applied migrations: ${errorMessage}`
+    );
     migrationLogger.error('Error getting applied migrations', {
-      error: error.message,
+      originalError: errorMessage,
+      error: dbError.message,
+      code: dbError.code,
       duration: timer.elapsedMs(),
     });
     return [];
   }
 }
 
-async function runMigration(migrationFile, direction = 'up') {
+async function runMigration(
+  migrationFile: string,
+  direction: 'up' | 'down' = 'up'
+): Promise<void> {
   const timer = createTimer();
 
   migrationLogger.info('Starting migration execution', {
@@ -221,20 +320,39 @@ async function runMigration(migrationFile, direction = 'up') {
   const filePath = path.join(process.cwd(), MIGRATIONS_DIR, migrationFile);
 
   if (!fs.existsSync(filePath)) {
-    const error = new Error(`Migration file not found: ${migrationFile}`);
+    const error = new NotFoundError(`Migration file: ${migrationFile}`);
     migrationLogger.error('Migration file not found', {
       file: migrationFile,
       path: filePath,
       duration: timer.elapsedMs(),
+      error: error.message,
+      code: error.code,
     });
     throw error;
   }
 
-  const content = fs.readFileSync(filePath, 'utf8');
+  let content: string;
+  try {
+    content = fs.readFileSync(filePath, 'utf8');
+  } catch (error: unknown) {
+    const errorMessage = getErrorMessage(error);
+    const configError = new ConfigurationError(
+      `Failed to read migration file: ${errorMessage}`
+    );
+    migrationLogger.error('Failed to read migration file', {
+      file: migrationFile,
+      path: filePath,
+      originalError: errorMessage,
+      error: configError.message,
+      code: configError.code,
+      duration: timer.elapsedMs(),
+    });
+    throw configError;
+  }
 
   // Split migration file by -- UP and -- DOWN comments
   const parts = content.split(/-- (UP|DOWN)/i);
-  let sql;
+  let sql: string;
 
   if (direction === 'up') {
     const upIndex = parts.findIndex(
@@ -246,12 +364,14 @@ async function runMigration(migrationFile, direction = 'up') {
       (part) => part.trim().toUpperCase() === 'DOWN'
     );
     if (downIndex === -1) {
-      const error = new Error(
+      const error = new ValidationError(
         `No DOWN section found in migration ${migrationFile}`
       );
       migrationLogger.error('Missing DOWN section', {
         file: migrationFile,
         duration: timer.elapsedMs(),
+        error: error.message,
+        code: error.code,
       });
       throw error;
     }
@@ -259,13 +379,15 @@ async function runMigration(migrationFile, direction = 'up') {
   }
 
   if (!sql || !sql.trim()) {
-    const error = new Error(
+    const error = new ValidationError(
       `No ${direction.toUpperCase()} SQL found in migration ${migrationFile}`
     );
     migrationLogger.error('Empty migration section', {
       file: migrationFile,
       direction,
       duration: timer.elapsedMs(),
+      error: error.message,
+      code: error.code,
     });
     throw error;
   }
@@ -273,7 +395,21 @@ async function runMigration(migrationFile, direction = 'up') {
   // Create a temporary SQL file for execution
   const tempDir = path.join(process.cwd(), 'temp');
   if (!fs.existsSync(tempDir)) {
-    fs.mkdirSync(tempDir, { recursive: true });
+    try {
+      fs.mkdirSync(tempDir, { recursive: true });
+    } catch (error: unknown) {
+      const errorMessage = getErrorMessage(error);
+      const configError = new ConfigurationError(
+        `Failed to create temp directory: ${errorMessage}`
+      );
+      migrationLogger.error('Failed to create temp directory', {
+        tempDir,
+        originalError: errorMessage,
+        error: configError.message,
+        code: configError.code,
+      });
+      throw configError;
+    }
   }
 
   const tempFile = path.join(
@@ -334,25 +470,45 @@ async function runMigration(migrationFile, direction = 'up') {
       version,
       duration: timer.elapsedMs(),
     });
-  } catch (error) {
+  } catch (error: unknown) {
+    // If it's already a custom error, re-throw it
+    if (isCustomError(error)) {
+      throw error;
+    }
+
+    const errorMessage = getErrorMessage(error);
+    const errorStack = getErrorStack(error);
+    const dbError = new DatabaseError(
+      `Migration execution failed: ${errorMessage}`
+    );
     migrationLogger.error('Migration execution failed', {
       file: migrationFile,
       direction,
-      error: error.message,
-      stack: error.stack,
+      originalError: errorMessage,
+      error: dbError.message,
+      code: dbError.code,
+      stack: errorStack,
       duration: timer.elapsedMs(),
     });
-    throw error;
+    throw dbError;
   } finally {
     // Clean up temp file
     if (fs.existsSync(tempFile)) {
-      fs.unlinkSync(tempFile);
-      migrationLogger.debug('Temp file cleaned up', { tempFile });
+      try {
+        fs.unlinkSync(tempFile);
+        migrationLogger.debug('Temp file cleaned up', { tempFile });
+      } catch (error: unknown) {
+        const errorMessage = getErrorMessage(error);
+        migrationLogger.warn('Failed to clean up temp file', {
+          tempFile,
+          error: errorMessage,
+        });
+      }
     }
   }
 }
 
-async function migrateUp() {
+async function migrateUp(): Promise<void> {
   const timer = createTimer();
 
   migrationLogger.info('Starting pending migrations check');
@@ -393,7 +549,7 @@ async function migrateUp() {
   console.log(`🎉 Applied ${pendingMigrations.length} migration(s)`);
 }
 
-async function migrateDown() {
+async function migrateDown(): Promise<void> {
   const timer = createTimer();
 
   migrationLogger.info('Starting migration rollback');
@@ -417,16 +573,19 @@ async function migrateDown() {
   );
 
   if (!lastMigrationFile) {
+    const error = new NotFoundError(
+      `Migration file for version: ${lastAppliedVersion}`
+    );
     migrationLogger.error('Migration file not found for rollback', {
       version: lastAppliedVersion,
       availableFiles: allMigrationFiles,
       duration: timer.elapsedMs(),
+      error: error.message,
+      code: error.code,
     });
-    console.error(
-      `❌ Migration file not found for version: ${lastAppliedVersion}`
-    );
+    console.error(`❌ ${error.message}`);
     console.log('Available migrations:', allMigrationFiles);
-    return;
+    throw error;
   }
 
   migrationLogger.info('Rolling back migration', {
@@ -445,7 +604,7 @@ async function migrateDown() {
   });
 }
 
-async function migrationStatus() {
+async function migrationStatus(): Promise<void> {
   const timer = createTimer();
 
   migrationLogger.info('Checking migration status');
@@ -491,7 +650,7 @@ async function migrationStatus() {
   });
 }
 
-async function debugMigrations() {
+async function debugMigrations(): Promise<void> {
   const timer = createTimer();
 
   migrationLogger.info('Starting migration debug');
@@ -545,14 +704,18 @@ async function debugMigrations() {
   });
 }
 
-function createMigrationFile(name) {
+function createMigrationFile(name: string | undefined): void {
   const timer = createTimer();
 
   if (!name) {
-    console.error('❌ Please provide a migration name');
+    const error = new ValidationError('Migration name is required');
+    console.error(`❌ ${error.message}`);
     console.log('Example: npm run db migrate:create add_user_email');
-    migrationLogger.error('Migration creation failed: no name provided');
-    return;
+    migrationLogger.error('Migration creation failed', {
+      error: error.message,
+      code: error.code,
+    });
+    throw error;
   }
 
   const timestamp = new Date().toISOString().replace(/[-:T]/g, '').slice(0, 14);
@@ -597,7 +760,21 @@ SELECT '${name} migration rolled back successfully!' as status;
   // Ensure migrations directory exists
   const migrationsPath = path.join(process.cwd(), MIGRATIONS_DIR);
   if (!fs.existsSync(migrationsPath)) {
-    fs.mkdirSync(migrationsPath, { recursive: true });
+    try {
+      fs.mkdirSync(migrationsPath, { recursive: true });
+    } catch (error: unknown) {
+      const errorMessage = getErrorMessage(error);
+      const configError = new ConfigurationError(
+        `Failed to create migrations directory: ${errorMessage}`
+      );
+      migrationLogger.error('Failed to create migrations directory', {
+        path: migrationsPath,
+        originalError: errorMessage,
+        error: configError.message,
+        code: configError.code,
+      });
+      throw configError;
+    }
   }
 
   try {
@@ -612,19 +789,26 @@ SELECT '${name} migration rolled back successfully!' as status;
       filepath,
       duration: timer.elapsedMs(),
     });
-  } catch (error) {
-    console.error(`❌ Failed to create migration file: ${error.message}`);
+  } catch (error: unknown) {
+    const errorMessage = getErrorMessage(error);
+    const configError = new ConfigurationError(
+      `Failed to create migration file: ${errorMessage}`
+    );
+    console.error(`❌ ${configError.message}`);
     migrationLogger.error('Migration file creation failed', {
       name,
       filename,
       filepath,
-      error: error.message,
+      originalError: errorMessage,
+      error: configError.message,
+      code: configError.code,
       duration: timer.elapsedMs(),
     });
+    throw configError;
   }
 }
 
-async function cleanDatabase() {
+async function cleanDatabase(): Promise<void> {
   const timer = createTimer();
 
   console.log('🧹 Cleaning database (removing all tables)...');
@@ -733,18 +917,30 @@ async function cleanDatabase() {
         duration: timer.elapsedMs(),
       });
     }
-  } catch (error) {
+  } catch (error: unknown) {
+    // If it's already a custom error, re-throw it
+    if (isCustomError(error)) {
+      throw error;
+    }
+
+    const errorMessage = getErrorMessage(error);
+    const errorStack = getErrorStack(error);
+    const dbError = new DatabaseError(
+      `Database clean operation failed: ${errorMessage}`
+    );
     dbLogger.error('Database clean operation failed', {
-      error: error.message,
-      stack: error.stack,
+      originalError: errorMessage,
+      error: dbError.message,
+      code: dbError.code,
+      stack: errorStack,
       duration: timer.elapsedMs(),
     });
-    console.error('❌ Clean operation failed:', error.message);
-    throw error;
+    console.error(`❌ ${dbError.message}`);
+    throw dbError;
   }
 }
 
-async function createSchema(entity) {
+async function createSchema(entity: string): Promise<void> {
   const timer = createTimer();
 
   if (entity === 'all') {
@@ -763,21 +959,29 @@ async function createSchema(entity) {
     return;
   }
 
-  const config = entities[entity];
-  if (!config || !config.schema) {
-    console.error(`❌ Unknown entity: ${entity}`);
-    dbLogger.error('Unknown entity for schema creation', { entity });
-    return;
+  const config = entities[entity as keyof typeof entities];
+  if (!config || typeof config === 'string' || !config.schema) {
+    const error = new ValidationError(`Unknown entity: ${entity}`);
+    console.error(`❌ ${error.message}`);
+    dbLogger.error('Unknown entity for schema creation', {
+      entity,
+      error: error.message,
+      code: error.code,
+    });
+    throw error;
   }
 
   if (!checkFileExists(config.schema)) {
-    console.error(`❌ Schema file not found: database/${config.schema}`);
+    const error = new NotFoundError(`Schema file: database/${config.schema}`);
+    console.error(`❌ ${error.message}`);
     dbLogger.error('Schema file not found', {
       entity,
       schemaFile: config.schema,
       duration: timer.elapsedMs(),
+      error: error.message,
+      code: error.code,
     });
-    return;
+    throw error;
   }
 
   console.log(`🏗️  Creating ${entity} schema...`);
@@ -795,18 +999,29 @@ async function createSchema(entity) {
       schemaFile: config.schema,
       duration: timer.elapsedMs(),
     });
-  } catch (error) {
+  } catch (error: unknown) {
+    // If it's already a custom error, re-throw it
+    if (isCustomError(error)) {
+      throw error;
+    }
+
+    const errorMessage = getErrorMessage(error);
+    const dbError = new DatabaseError(
+      `Failed to create ${entity} schema: ${errorMessage}`
+    );
     dbLogger.error('Entity schema creation failed', {
       entity,
       schemaFile: config.schema,
-      error: error.message,
+      originalError: errorMessage,
+      error: dbError.message,
+      code: dbError.code,
       duration: timer.elapsedMs(),
     });
-    throw error;
+    throw dbError;
   }
 }
 
-async function seedData(entity) {
+async function seedData(entity: string): Promise<void> {
   const timer = createTimer();
 
   if (entity === 'all') {
@@ -825,21 +1040,31 @@ async function seedData(entity) {
     return;
   }
 
-  const config = entities[entity];
-  if (!config || !config.seed) {
-    console.error(`❌ Unknown entity or no seed file: ${entity}`);
-    dbLogger.error('Unknown entity or missing seed file', { entity });
-    return;
+  const config = entities[entity as keyof typeof entities];
+  if (!config || typeof config === 'string' || !config.seed) {
+    const error = new ValidationError(
+      `Unknown entity or no seed file: ${entity}`
+    );
+    console.error(`❌ ${error.message}`);
+    dbLogger.error('Unknown entity or missing seed file', {
+      entity,
+      error: error.message,
+      code: error.code,
+    });
+    throw error;
   }
 
   if (!checkFileExists(config.seed)) {
-    console.error(`❌ Seed file not found: database/${config.seed}`);
+    const error = new NotFoundError(`Seed file: database/${config.seed}`);
+    console.error(`❌ ${error.message}`);
     dbLogger.error('Seed file not found', {
       entity,
       seedFile: config.seed,
       duration: timer.elapsedMs(),
+      error: error.message,
+      code: error.code,
     });
-    return;
+    throw error;
   }
 
   console.log(`🌱 Seeding ${entity} data...`);
@@ -854,18 +1079,29 @@ async function seedData(entity) {
       seedFile: config.seed,
       duration: timer.elapsedMs(),
     });
-  } catch (error) {
+  } catch (error: unknown) {
+    // If it's already a custom error, re-throw it
+    if (isCustomError(error)) {
+      throw error;
+    }
+
+    const errorMessage = getErrorMessage(error);
+    const dbError = new DatabaseError(
+      `Failed to seed ${entity} data: ${errorMessage}`
+    );
     dbLogger.error('Entity data seeding failed', {
       entity,
       seedFile: config.seed,
-      error: error.message,
+      originalError: errorMessage,
+      error: dbError.message,
+      code: dbError.code,
       duration: timer.elapsedMs(),
     });
-    throw error;
+    throw dbError;
   }
 }
 
-async function setupEntity(entity) {
+async function setupEntity(entity: string): Promise<void> {
   const timer = createTimer();
 
   console.log(`🚀 Setting up ${entity}...`);
@@ -879,17 +1115,26 @@ async function setupEntity(entity) {
       entity,
       duration: timer.elapsedMs(),
     });
-  } catch (error) {
+  } catch (error: unknown) {
+    // If it's already a custom error, re-throw it
+    if (isCustomError(error)) {
+      throw error;
+    }
+
+    const errorMessage = getErrorMessage(error);
+    const dbError = new DatabaseError(`Entity setup failed: ${errorMessage}`);
     dbLogger.error('Entity setup failed', {
       entity,
-      error: error.message,
+      originalError: errorMessage,
+      error: dbError.message,
+      code: dbError.code,
       duration: timer.elapsedMs(),
     });
-    throw error;
+    throw dbError;
   }
 }
 
-async function resetDatabase() {
+async function resetDatabase(): Promise<void> {
   const timer = createTimer();
 
   console.log('🗑️  Resetting database...');
@@ -909,16 +1154,25 @@ async function resetDatabase() {
     dbLogger.info('Database reset and setup completed', {
       totalDuration: timer.elapsedMs(),
     });
-  } catch (error) {
+  } catch (error: unknown) {
+    // If it's already a custom error, re-throw it
+    if (isCustomError(error)) {
+      throw error;
+    }
+
+    const errorMessage = getErrorMessage(error);
+    const dbError = new DatabaseError(`Database reset failed: ${errorMessage}`);
     dbLogger.error('Database reset failed', {
-      error: error.message,
+      originalError: errorMessage,
+      error: dbError.message,
+      code: dbError.code,
       duration: timer.elapsedMs(),
     });
-    throw error;
+    throw dbError;
   }
 }
 
-function showUsage() {
+function showUsage(): void {
   console.log(`
 🗄️  Food App Database CLI
 
@@ -959,7 +1213,7 @@ Environment:
   `);
 }
 
-async function main() {
+async function main(): Promise<void> {
   const mainTimer = createTimer();
   const [operation, entity] = process.argv.slice(2);
 
@@ -978,16 +1232,20 @@ async function main() {
     switch (operation) {
       case 'create':
         if (!entity) {
-          console.error('❌ Please specify an entity to create');
-          return;
+          const error = new ValidationError(
+            'Please specify an entity to create'
+          );
+          console.error(`❌ ${error.message}`);
+          throw error;
         }
         await createSchema(entity);
         break;
 
       case 'seed':
         if (!entity) {
-          console.error('❌ Please specify an entity to seed');
-          return;
+          const error = new ValidationError('Please specify an entity to seed');
+          console.error(`❌ ${error.message}`);
+          throw error;
         }
         await seedData(entity);
         break;
@@ -997,15 +1255,16 @@ async function main() {
         await setupEntity(setupTarget);
         break;
       }
-      case 'reset':
+
+      case 'reset': {
         await resetDatabase();
         break;
+      }
 
       case 'clean':
         await cleanDatabase();
         break;
 
-      // Migration operations
       case 'migrate':
       case 'migrate:up':
         await migrateUp();
@@ -1027,9 +1286,12 @@ async function main() {
         await debugMigrations();
         break;
 
-      default:
-        console.error(`❌ Unknown operation: ${operation}`);
+      default: {
+        const error = new ValidationError(`Unknown operation: ${operation}`);
+        console.error(`❌ ${error.message}`);
         showUsage();
+        throw error;
+      }
     }
 
     logger.info('Database operation completed successfully', {
@@ -1037,15 +1299,36 @@ async function main() {
       entity,
       totalDuration: mainTimer.elapsedMs(),
     });
-  } catch (error) {
-    logger.error('Database operation failed', {
+  } catch (error: unknown) {
+    // Log the error with proper structure
+    const errorData = {
       operation,
       entity,
-      error: error.message,
-      stack: error.stack,
       totalDuration: mainTimer.elapsedMs(),
-    });
-    console.error('❌ Operation failed:', error.message);
+    };
+
+    if (isCustomError(error)) {
+      // Custom errors - log with their properties
+      logger.error('Database operation failed', {
+        ...errorData,
+        error: error.message,
+        code: error.code,
+        statusCode: error.statusCode,
+        stack: error.stack,
+      });
+    } else {
+      // Unknown errors - log as generic
+      const errorMessage = getErrorMessage(error);
+      const errorStack = getErrorStack(error);
+      logger.error('Database operation failed with unknown error', {
+        ...errorData,
+        error: errorMessage,
+        stack: errorStack,
+      });
+    }
+
+    const errorMessage = getErrorMessage(error);
+    console.error('❌ Operation failed:', errorMessage);
     process.exit(1);
   }
 }

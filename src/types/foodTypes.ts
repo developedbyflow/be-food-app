@@ -1,5 +1,4 @@
-// ✅ This defines the data structure for everything
-
+// ✅ Enum-like types for strict validation
 export type FoodCategory =
   | 'vegetable'
   | 'fruit'

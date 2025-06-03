@@ -1,81 +1,115 @@
-// import { FoodRepository } from '../repositories/foodRepository';
-// import { Food, FoodResponse, FoodQueryParams } from '../types';
+import { pool } from '../../database/scripts/connection.js';
+import { Food, FoodQueryParams } from '../types/foodTypes.js';
 
-// export class FoodService {
-//   private foodRepository: FoodRepository;
+// Function: Find foods with filtering
+export const findFoods = async (params: FoodQueryParams): Promise<Food[]> => {
+  let query = 'SELECT * FROM foods WHERE 1=1';
+  const values: any[] = [];
+  let paramCounter = 1;
 
-//   constructor() {
-//     this.foodRepository = new FoodRepository();
-//   }
+  if (params.category) {
+    query += ` AND category = $${paramCounter}`;
+    values.push(params.category);
+    paramCounter++;
+  }
 
-//   /**
-//    * Transform database food to API response format
-//    */
-//   private transformFood(food: Food): FoodResponse {
-//     return {
-//       id: food.id,
-//       name: food.name,
-//       description: food.description,
-//       category: food.category,
-//       brand: food.brand,
-//       barcode: food.barcode,
-//       nutritional_info: {
-//         calories: parseFloat(food.calories),
-//         protein: parseFloat(food.protein),
-//         carbs: parseFloat(food.carbs),
-//         fat: parseFloat(food.fat),
-//         fiber: food.fiber ? parseFloat(food.fiber) : null,
-//         sugar: food.sugar ? parseFloat(food.sugar) : null,
-//         sodium: food.sodium ? parseFloat(food.sodium) : null,
-//       },
-//       serving_size: {
-//         amount: parseFloat(food.serving_size_amount),
-//         unit: food.serving_size_unit,
-//       },
-//       created_at: food.created_at,
-//       updated_at: food.updated_at,
-//     };
-//   }
+  if (params.search) {
+    query += ` AND (name ILIKE $${paramCounter} OR description ILIKE $${paramCounter})`;
+    values.push(`%${params.search}%`);
+    paramCounter++;
+  }
 
-//   /**
-//    * Get all foods with pagination
-//    */
-//   async getAllFoods(params: FoodQueryParams) {
-//     const { limit = 20, offset = 0 } = params;
+  if (params.barcode) {
+    query += ` AND barcode = $${paramCounter}`;
+    values.push(params.barcode);
+    paramCounter++;
+  }
 
-//     // Get foods from repository
-//     const { foods, total } = await this.foodRepository.findAll(params);
+  if (params.brand) {
+    query += ` AND brand ILIKE $${paramCounter}`;
+    values.push(`%${params.brand}%`);
+    paramCounter++;
+  }
 
-//     // Transform foods to response format
-//     const transformedFoods = foods.map((food) => this.transformFood(food));
+  query += ` ORDER BY name ASC LIMIT $${paramCounter} OFFSET $${paramCounter + 1}`;
+  values.push(params.limit, params.offset);
 
-//     // Calculate pagination info
-//     const page = Math.floor(offset / limit) + 1;
-//     const totalPages = Math.ceil(total / limit);
+  const result = await pool.query(query, values);
+  return result.rows as Food[];
+};
 
-//     return {
-//       items: transformedFoods,
-//       pagination: {
-//         total,
-//         limit,
-//         offset,
-//         has_more: offset + limit < total,
-//         page,
-//         total_pages: totalPages,
-//       },
-//     };
-//   }
+// Function: Count foods with same filters
+export const countFoods = async (
+  params: Omit<FoodQueryParams, 'limit' | 'offset'>
+): Promise<number> => {
+  let query = 'SELECT COUNT(*) FROM foods WHERE 1=1';
+  const values: any[] = [];
+  let paramCounter = 1;
 
-//   /**
-//    * Get a single food by ID
-//    */
-//   async getFoodById(id: string): Promise<FoodResponse | null> {
-//     const food = await this.foodRepository.findById(id);
+  if (params.category) {
+    query += ` AND category = $${paramCounter}`;
+    values.push(params.category);
+    paramCounter++;
+  }
 
-//     if (!food) {
-//       return null;
-//     }
+  if (params.search) {
+    query += ` AND (name ILIKE $${paramCounter} OR description ILIKE $${paramCounter})`;
+    values.push(`%${params.search}%`);
+    paramCounter++;
+  }
 
-//     return this.transformFood(food);
-//   }
-// }
+  if (params.barcode) {
+    query += ` AND barcode = $${paramCounter}`;
+    values.push(params.barcode);
+    paramCounter++;
+  }
+
+  if (params.brand) {
+    query += ` AND brand ILIKE $${paramCounter}`;
+    values.push(`%${params.brand}%`);
+    paramCounter++;
+  }
+
+  const result = await pool.query(query, values);
+  return parseInt(result.rows[0].count);
+};
+
+// Function: Find food by ID
+export const findFoodById = async (id: string): Promise<Food | null> => {
+  const query = 'SELECT * FROM foods WHERE id = $1';
+  const result = await pool.query(query, [id]);
+  return result.rows.length > 0 ? (result.rows[0] as Food) : null;
+};
+
+// Function: Create new food
+export const createFood = async (foodData: any): Promise<Food> => {
+  const query = `
+    INSERT INTO foods (
+      name, description, category, brand, barcode,
+      calories, protein, carbs, fat, fiber, sugar, sodium,
+      serving_size_amount, serving_size_unit
+    ) VALUES (
+      $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14
+    ) RETURNING *
+  `;
+
+  const values = [
+    foodData.name,
+    foodData.description || null,
+    foodData.category,
+    foodData.brand || null,
+    foodData.barcode || null,
+    foodData.nutritional_info.calories,
+    foodData.nutritional_info.protein,
+    foodData.nutritional_info.carbs,
+    foodData.nutritional_info.fat,
+    foodData.nutritional_info.fiber || null,
+    foodData.nutritional_info.sugar || null,
+    foodData.nutritional_info.sodium || null,
+    foodData.serving_size.amount,
+    foodData.serving_size.unit,
+  ];
+
+  const result = await pool.query(query, values);
+  return result.rows[0] as Food;
+};
