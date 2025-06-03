@@ -29,7 +29,7 @@ export default [
 
   // 2) Specific config for all TypeScript files
   {
-    files: ['**/*.ts'], // Apply this config only to TypeScript files
+    files: ['**/*.ts', 'src/**/*', 'database/**/*'], // Apply this config only to TypeScript files
     languageOptions: {
       parser: tsParser, // Use the TypeScript parser to parse TypeScript syntax
       parserOptions: {

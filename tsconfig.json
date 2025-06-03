@@ -24,7 +24,7 @@
     // "declaration": true,  // generates .d.ts type definitions
   },
   // Include all files under the src directory
-  "include": ["src/**/*"],
+  "include": ["src/**/*", "database/**/*"],
   // Exclude node_modules and dist directories
   "exclude": ["node_modules", "dist"]
 }

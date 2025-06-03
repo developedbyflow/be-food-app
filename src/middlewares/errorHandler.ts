@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 
-import { AppError } from '../utils/errors';
+import { AppError } from '../utils/customErrors.ts';
 
 export interface CustomError extends Error {
   statusCode?: number;
